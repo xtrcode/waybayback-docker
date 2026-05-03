@@ -4,10 +4,53 @@ on:
   push:
     branches:
       - main
+  schedule:
+    - cron: '0 6 * * *'  # daily at 06:00 UTC
   workflow_dispatch:
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    outputs:
+      needs_build: ${{ steps.check.outputs.needs_build }}
+      python: ${{ steps.check.outputs.python }}
+      waybackpack: ${{ steps.check.outputs.waybackpack }}
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check upstream versions
+        id: check
+        run: |
+          PYTHON_VERSION=$(docker run --rm python:3-alpine python --version 2>&1 | awk '{print $2}')
+          WAYBACKPACK_VERSION=$(curl -sf https://pypi.org/pypi/waybackpack/json | jq -r '.info.version')
+          TAG="python${PYTHON_VERSION}-waybackpack${WAYBACKPACK_VERSION}"
+
+          echo "python=${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "waybackpack=${WAYBACKPACK_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Upstream: Python ${PYTHON_VERSION}, waybackpack ${WAYBACKPACK_VERSION}"
+
+          if docker manifest inspect "ghcr.io/${{ github.repository }}:${TAG}" > /dev/null 2>&1; then
+            echo "Tag ${TAG} already exists — no build needed"
+            echo "needs_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag ${TAG} not found — build required"
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: check
+    if: >
+      needs.check.outputs.needs_build == 'true' ||
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -19,24 +62,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Build image for version extraction
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          tags: waybayback-docker:version-check
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Extract versions
-        id: versions
-        run: |
-          PYTHON_VERSION=$(docker run --rm --entrypoint python waybayback-docker:version-check --version 2>&1 | awk '{print $2}')
-          WAYBACKPACK_VERSION=$(docker run --rm --entrypoint pip waybayback-docker:version-check show waybackpack | grep '^Version:' | awk '{print $2}')
-          echo "python=${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "waybackpack=${WAYBACKPACK_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Python: ${PYTHON_VERSION}, waybackpack: ${WAYBACKPACK_VERSION}"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -52,6 +77,6 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:python${{ steps.versions.outputs.python }}-waybackpack${{ steps.versions.outputs.waybackpack }}
+            ghcr.io/${{ github.repository }}:python${{ needs.check.outputs.python }}-waybackpack${{ needs.check.outputs.waybackpack }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
