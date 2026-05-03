@@ -32,7 +32,7 @@ jobs:
       - name: Extract versions
         id: versions
         run: |
-          PYTHON_VERSION=$(docker run --rm waybayback-docker:version-check python --version 2>&1 | awk '{print $2}')
+          PYTHON_VERSION=$(docker run --rm --entrypoint python waybayback-docker:version-check --version 2>&1 | awk '{print $2}')
           WAYBACKPACK_VERSION=$(docker run --rm --entrypoint pip waybayback-docker:version-check show waybackpack | grep '^Version:' | awk '{print $2}')
           echo "python=${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
           echo "waybackpack=${WAYBACKPACK_VERSION}" >> "$GITHUB_OUTPUT"
