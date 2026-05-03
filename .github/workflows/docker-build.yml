@@ -1,0 +1,57 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image for version extraction
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: waybayback-docker:version-check
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract versions
+        id: versions
+        run: |
+          PYTHON_VERSION=$(docker run --rm waybayback-docker:version-check python --version 2>&1 | awk '{print $2}')
+          WAYBACKPACK_VERSION=$(docker run --rm --entrypoint pip waybayback-docker:version-check show waybackpack | grep '^Version:' | awk '{print $2}')
+          echo "python=${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "waybackpack=${WAYBACKPACK_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Python: ${PYTHON_VERSION}, waybackpack: ${WAYBACKPACK_VERSION}"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:python${{ steps.versions.outputs.python }}-waybackpack${{ steps.versions.outputs.waybackpack }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
