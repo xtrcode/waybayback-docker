@@ -29,7 +29,8 @@ jobs:
       - name: Check upstream versions
         id: check
         run: |
-          PYTHON_VERSION=$(docker run --rm python:3-alpine python --version 2>&1 | awk '{print $2}')
+          docker pull -q python:3-alpine
+          PYTHON_VERSION=$(docker run --rm python:3-alpine python --version | awk '{print $2}')
           WAYBACKPACK_VERSION=$(curl -sf https://pypi.org/pypi/waybackpack/json | jq -r '.info.version')
           TAG="python${PYTHON_VERSION}-waybackpack${WAYBACKPACK_VERSION}"
 
